@@ -114,14 +114,18 @@ model Player {
   active        Boolean  @default(true)
   injuryStatus  String?
   isTeamDefense Boolean  @default(false)
-  espnId        String?  @unique
-  yahooId       String?  @unique
+  // Crosswalk ids are NOT unique in the real Sleeper dump (duplicate espn_ids
+  // observed) — indexed lookup columns only, never identity.
+  espnId        String?
+  yahooId       String?
   gsisId        String?
   sportradarId  String?
   updatedAt     DateTime @updatedAt
 
   @@index([nameKey, pos])
   @@index([pos, nflTeam])
+  @@index([espnId])
+  @@index([yahooId])
 }
 
 model PlayerAlias {
