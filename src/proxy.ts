@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 // Webhooks and cron MUST stay public: Stripe/Clerk sign their own requests and a
 // middleware change that protects them silently drops entitlements (PLAN.md §9).
@@ -12,9 +13,18 @@ const isPublicRoute = createRouteMatcher([
   "/api/cron(.*)",
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) await auth.protect();
-});
+const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+// Dev-only: with no Clerk keys, pass every request through (server/auth.ts
+// substitutes a fixed local user). In production the clerkMiddleware path runs
+// regardless and fails loudly on missing keys — never silently authless.
+const passthrough = () => NextResponse.next();
+
+export default clerkEnabled || process.env.NODE_ENV === "production"
+  ? clerkMiddleware(async (auth, req) => {
+      if (!isPublicRoute(req)) await auth.protect();
+    })
+  : passthrough;
 
 export const config = {
   matcher: [

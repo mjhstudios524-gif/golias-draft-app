@@ -1,10 +1,17 @@
 import "server-only";
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { env } from "@/lib/env";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { dbEnv } from "@/lib/env";
 
 function createClient() {
-  const adapter = new PrismaNeon({ connectionString: env().DATABASE_URL });
+  const connectionString = dbEnv().DATABASE_URL;
+  // Neon's serverless driver speaks Neon's proxy protocol — for local Postgres
+  // (dev) use the node-postgres adapter instead. Chosen by host, not NODE_ENV,
+  // so preview deploys against Neon branches behave like production.
+  const adapter = connectionString.includes("neon.tech")
+    ? new PrismaNeon({ connectionString })
+    : new PrismaPg({ connectionString });
   return new PrismaClient({ adapter });
 }
 
