@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GOLIAS Draft Tool
 
-## Getting Started
+Production rebuild of the single-file fantasy football draft assistant. The full
+implementation plan (architecture, data model, phasing, decision log) is in
+[PLAN.md](./PLAN.md).
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router) · TypeScript · Postgres (Neon) + Prisma 7 ·
+Clerk · Stripe Checkout · Vercel. The draft math lives in `src/engine/` as a pure
+TypeScript module tested directly with Vitest.
+
+## Local development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.example .env   # fill in values — see checklist below
+pnpm db:generate
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Useful scripts: `pnpm test` (engine suite) · `pnpm typecheck` · `pnpm lint` ·
+`pnpm db:migrate` (needs a real DIRECT_DATABASE_URL) · `pnpm extract:fixtures`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Owner setup checklist (one-time, external services)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+These require account access and are **not** automated by the repo:
 
-## Learn More
+1. **Neon** — create the database via the Vercel Marketplace integration
+   (Storage → Neon). Copy the pooled URL into `DATABASE_URL` and the direct URL
+   into `DIRECT_DATABASE_URL` (both locally and in Vercel env vars). Then run
+   `pnpm db:migrate` once.
+2. **Clerk** — create an application (dev instance for local). Copy
+   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY`. Add a webhook
+   endpoint for `user.created`, `user.updated`, `user.deleted` →
+   `/api/webhooks/clerk`, and copy `CLERK_WEBHOOK_SIGNING_SECRET`. (Local dev
+   works without the webhook — users are lazily upserted.)
+3. **Stripe** — create the product “GOLIAS Draft Kit — 2026 Season” with a
+   one-time $8.99 price; put the price ID in `STRIPE_PRICE_SEASON`. Add a
+   webhook endpoint (production domain only — never a preview URL) for
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `charge.refunded`, `charge.dispute.created` → `/api/webhooks/stripe`.
+   Locally: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
+   (its printed secret is your local `STRIPE_WEBHOOK_SECRET`).
+4. **Vercel** — import the repo, set all env vars from `.env.example`,
+   Node 24, and enable the crons defined in `vercel.json` (added in Phase 3).
+   The players-dump cron needs `maxDuration: 300` (Pro plan).
 
-To learn more about Next.js, take a look at the following resources:
+## Engine purity
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`src/engine/**` may not import React, Next, Prisma, or app code — enforced by
+ESLint (`no-restricted-imports`) and kept honest by golden-master tests pinned
+against the legacy tool (`src/engine/legacy/`, deleted after port sign-off).
+See PLAN.md §4 for the port strategy and §11 for the test plan.

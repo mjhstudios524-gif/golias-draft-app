@@ -1,0 +1,291 @@
+// GOLIAS Draft Tool — unified schema (PLAN.md §7)
+// Key rationale lives in the plan; comments here only state constraints the schema can't show.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7: connection URLs live in prisma.config.ts (migrate) and the Neon
+// driver adapter passed to PrismaClient (runtime) — not in this file.
+datasource db {
+  provider = "postgresql"
+}
+
+enum DraftMode {
+  MOCK
+  MANUAL
+  SLEEPER_SYNC
+}
+
+enum DraftStatus {
+  IN_PROGRESS
+  COMPLETE
+  ABANDONED
+}
+
+enum PickSource {
+  USER
+  AUTOPICK
+  PROVIDER
+}
+
+enum Pos {
+  QB
+  RB
+  WR
+  TE
+  K
+  DEF
+}
+
+enum SetKind {
+  PRESET
+  UPLOAD
+}
+
+enum SetStatus {
+  DRAFT
+  READY
+  ARCHIVED
+}
+
+enum DataTier {
+  RANK_ONLY
+  POINTS
+  FULL_STATS
+}
+
+enum AdpContext {
+  ONE_QB
+  SUPERFLEX
+  UNKNOWN
+}
+
+model User {
+  id            String    @id // Clerk user ID as PK — no surrogate
+  email         String?
+  name          String?
+  sleeperUserId String? // linked once for "my seat" detection
+  deletedAt     DateTime? // set by user.deleted webhook; GDPR path
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  entitlements Entitlement[]
+  leagues      League[]
+  rankingSets  RankingSet[]
+  sessions     DraftSession[]
+}
+
+model Entitlement {
+  id                      String    @id @default(cuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product                 String // 'season-2026'
+  stripeCheckoutSessionId String    @unique
+  stripePaymentIntentId   String?   @unique
+  amountTotal             Int
+  currency                String
+  purchasedAt             DateTime
+  expiresAt               DateTime
+  revokedAt               DateTime?
+  revokeReason            String? // 'refund' | 'dispute' | 'admin'
+
+  // Fulfillment upserts on this key (clearing revokedAt) so a refunded user can re-buy.
+  @@unique([userId, product])
+  @@index([userId])
+}
+
+model WebhookEvent {
+  id         String   @id // Stripe evt_… or svix message ID
+  source     String // 'stripe' | 'clerk'
+  type       String
+  receivedAt DateTime @default(now())
+}
+
+model Player {
+  id            String   @id @default(cuid())
+  sleeperId     String?  @unique // numeric string, or team code for D/ST
+  fullName      String
+  nameKey       String // normalizer output (Sleeper search_full_name-compatible)
+  suffix        String? // 'jr','sr','iii' — collision tie-break side channel
+  pos           Pos
+  nflTeam       String? // canonical code; null = FA
+  active        Boolean  @default(true)
+  injuryStatus  String?
+  isTeamDefense Boolean  @default(false)
+  espnId        String?  @unique
+  yahooId       String?  @unique
+  gsisId        String?
+  sportradarId  String?
+  updatedAt     DateTime @updatedAt
+
+  @@index([nameKey, pos])
+  @@index([pos, nflTeam])
+}
+
+model PlayerAlias {
+  id        String @id @default(cuid())
+  aliasKey  String
+  playerId  String
+  scope     String // 'GLOBAL' | userId
+  createdBy String
+
+  @@unique([aliasKey, scope])
+}
+
+model TeamBye {
+  seasonYear Int
+  teamCode   String // canonical codes only
+  week       Int
+
+  @@id([seasonYear, teamCode])
+}
+
+model League {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  name             String
+  seasonYear       Int
+  provider         String   @default("manual") // 'manual' | 'sleeper'
+  providerLeagueId String?
+  numTeams         Int
+  scoring          Json // ScoringConfig (zod-validated at boundary); raw provider blob kept alongside
+  rosterSpec       Json // {QB,RB,WR,TE,FLEX,DEF,K,BN, flexEligibleBySlot: Pos[][], ignoredSlots}
+  rankingSetId     String? // default set for new sessions (specific version)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  sessions DraftSession[]
+
+  @@index([userId])
+}
+
+model RankingSet {
+  id                String     @id @default(cuid())
+  groupId           String // stable across versions of "the same list"
+  version           Int        @default(1)
+  userId            String? // null ⇒ shipped preset
+  user              User?      @relation(fields: [userId], references: [id])
+  name              String
+  seasonYear        Int
+  kind              SetKind
+  status            SetStatus  @default(DRAFT)
+  dataTier          DataTier
+  formatTag         String // '1QB' | 'SF' — which market the ordering assumes
+  adpContext        AdpContext @default(UNKNOWN)
+  headerFingerprint String?
+  columnMap         Json?
+  rawCsv            String? // latest version per group only (bloat bound)
+  createdAt         DateTime   @default(now())
+
+  entries RankingEntry[]
+
+  @@unique([groupId, version])
+  @@index([userId, seasonYear])
+}
+
+model RankingEntry {
+  id              String     @id @default(cuid())
+  rankingSetId    String
+  set             RankingSet @relation(fields: [rankingSetId], references: [id], onDelete: Cascade)
+  playerId        String? // null = unlinked
+  rawName         String
+  team            String?
+  pos             Pos?
+  rank            Int?
+  adp             Float?
+  projPoints      Float?
+  stats           Json? // StatLine
+  matchMethod     String // ALIAS|EXACT_FULL|EXACT_POS|EXACT_TEAM|EXACT_NAME|FUZZY|MANUAL|UNLINKED
+  matchConfidence Float?
+  sourceRow       Int
+
+  @@unique([rankingSetId, playerId]) // null-exempt per Postgres semantics
+  @@index([rankingSetId])
+}
+
+model MappingProfile {
+  id                String   @id @default(cuid())
+  userId            String
+  headerFingerprint String
+  mapping           Json
+  lastUsedAt        DateTime @updatedAt
+
+  @@unique([userId, headerFingerprint])
+}
+
+model DraftSession {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  leagueId        String
+  league          League      @relation(fields: [leagueId], references: [id])
+  mode            DraftMode
+  status          DraftStatus @default(IN_PROGRESS)
+  // FROZEN snapshot: teams/order/mySlot/rosterSpec/scoring/byeMap + fully resolved
+  // ValuedPlayer[] (values, valueRanks, tiers, ADP) + rngSeed. Mid-draft edits to
+  // leagues/rankings can never shift a live board.
+  config          Json
+  queuedPlayerIds Json        @default("[]")
+  recPositions    Json        @default("[\"QB\",\"RB\",\"WR\",\"TE\",\"DEF\",\"K\"]")
+  providerDraftId String?     @unique // Sleeper draft_id
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  picks Pick[]
+  sync  DraftSync?
+
+  @@index([userId, status])
+}
+
+model Pick {
+  id        String       @id @default(cuid())
+  sessionId String
+  session   DraftSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  overall   Int
+  teamSlot  Int // 1..numTeams seat; round/pickInRound derived from overall + config
+  // Usually Player.id; 'custom:<hash>' for unlinked CSV players. Deliberately no FK —
+  // a live pick must never fail referential integrity. Validated against the snapshot.
+  playerId  String
+  source    PickSource
+  createdAt DateTime     @default(now())
+
+  @@unique([sessionId, overall]) // idempotency key for batched sync + provider re-polls
+  @@index([sessionId])
+}
+
+model DraftSync {
+  sessionId      String       @id
+  session        DraftSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  providerStatus String
+  syncedAt       DateTime
+  ttlSec         Int
+  etagPicks      String?
+  etagDraft      String?
+  claimedUntil   DateTime? // single-flight lease — pooler-safe, unlike session advisory locks
+  nextAllowedAt  DateTime? // 429/5xx backoff
+}
+
+model AdpSnapshot {
+  id          String   @id @default(cuid())
+  source      String // 'ffc'
+  format      String // 'STANDARD' | 'HALF_PPR' | 'PPR' | 'SF'
+  teams       Int
+  fetchedAt   DateTime
+  totalDrafts Int
+  entries     Json // [{playerId, rawName, adp, stdev, high, low, bye}]
+
+  @@unique([source, format, teams])
+}
+
+model PlayerSyncRun {
+  id      String   @id @default(cuid())
+  kind    String   @default("players") // 'players' | 'adp'
+  ranAt   DateTime @default(now())
+  etag    String?
+  changed Int
+  total   Int
+  ok      Boolean
+}

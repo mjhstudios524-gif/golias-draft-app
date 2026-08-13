@@ -1,0 +1,20 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # pinned major: golden-master float stability (PLAN.md §11)
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate # typecheck needs the generated Prisma client
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm vitest run --coverage
