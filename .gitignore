@@ -43,3 +43,6 @@ next-env.d.ts
 # env & generated
 .env
 src/generated/
+
+# test artifacts
+coverage/

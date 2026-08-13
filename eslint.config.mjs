@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "src/generated/**",
     "src/engine/legacy/**",
+    "src/engine/__tests__/helpers/*.cjs", // CommonJS bridges to the legacy module
+    "coverage/**",
   ]),
   {
     // The draft engine must stay pure: no framework, no DB, no app imports.
