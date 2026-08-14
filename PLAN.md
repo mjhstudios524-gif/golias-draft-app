@@ -1,6 +1,6 @@
 # GOLIAS Draft Tool — Production Rebuild Plan
 
-**Status:** §14 decisions resolved with owner 2026-08-13 — awaiting final go-ahead to begin Phase 0. No application code written yet.
+**Status (2026-08-14):** Phases 0–3 built, tested (319 green incl. golden parity + three-way transcription audit), and committed in `golias-draft-app`. Remaining before launch: owner-authored presets, external accounts (GitHub/Clerk/Neon/Stripe per README), first deploy + pre-launch checklist (§12). Phase 4 items deferred post-launch.
 **Source of truth for domain logic:** `draft-room.html` (~1,400 lines, vanilla JS). The logic is sound and is preserved; this plan generalizes it (rank → configurable value) without changing its behavior shape.
 **Date context:** 2026-08-12. Fantasy draft season peaks late August through Labor Day. The phasing in §13 front-loads the draft-critical path.
 
