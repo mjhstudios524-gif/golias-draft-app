@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { DraftSession, Pick as DbPick } from "@/generated/prisma/client";
 import type { DraftConfig, EnginePlayer, Pos } from "@/engine/types";
 import type { SessionPayload } from "@/stores/draftStore";
+import { db } from "@/server/db";
 
 const posSchema = z.enum(["QB", "RB", "WR", "TE", "K", "DEF"]);
 
@@ -27,6 +28,8 @@ export const snapshotV1 = z.object({
   myTeamId: z.number().int(),
   byeWeeks: z.record(z.string(), z.number().int()),
   adpContext: z.enum(["1QB", "SF", "UNKNOWN"]),
+  adpSource: z.string().optional(), // 'ffc:FORMAT' when live ADP was attached (PLAN.md §8a)
+  adpFetchedAt: z.string().optional(),
   rngSeed: z.number().int(),
   players: z.array(
     z.object({
@@ -44,11 +47,57 @@ export const snapshotV1 = z.object({
 
 export type SnapshotV1 = z.infer<typeof snapshotV1>;
 
-export function buildSessionPayload(
+export async function buildSessionPayload(
   session: DraftSession,
   picks: Pick<DbPick, "overall" | "teamSlot" | "playerId">[],
-): SessionPayload {
+): Promise<SessionPayload> {
   const snap = snapshotV1.parse(session.config);
+
+  // Ghost rows for picks the snapshot pool can't name — SLEEPER_SYNC boards
+  // regularly contain players outside the user's ranking set. Canonical ids
+  // resolve from the Player table; 'sleeper:<id>' sentinels from the sync
+  // engine's stored render metadata. Ghosts are already-drafted, so
+  // availability-derived math never sees them (mirrors the store-side
+  // injection in applyProviderPicks).
+  const known = new Set(snap.players.map((p) => p.id));
+  const unknown = picks.filter((p) => !known.has(p.playerId));
+  const ghosts: SnapshotV1["players"] = [];
+  if (unknown.length > 0) {
+    const canonicalIds = unknown.filter((p) => !p.playerId.startsWith("sleeper:")).map((p) => p.playerId);
+    const dbPlayers = canonicalIds.length
+      ? await db.player.findMany({
+          where: { id: { in: canonicalIds } },
+          select: { id: true, fullName: true, nflTeam: true, pos: true },
+        })
+      : [];
+    const byId = new Map(dbPlayers.map((p) => [p.id, p]));
+    let sentinelMeta: Record<string, { name: string; pos: string | null; team: string | null }> = {};
+    if (unknown.some((p) => p.playerId.startsWith("sleeper:"))) {
+      const sync = await db.draftSync.findUnique({
+        where: { sessionId: session.id },
+        select: { etagDraft: true },
+      });
+      try {
+        sentinelMeta = JSON.parse(sync?.etagDraft ?? "{}").unresolved ?? {};
+      } catch {
+        // scratch state unreadable — sentinels fall back to placeholder names
+      }
+    }
+    const VALID_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
+    for (const p of unknown) {
+      const hit = byId.get(p.playerId);
+      const meta = sentinelMeta[p.playerId];
+      const pos = hit?.pos ?? (meta?.pos && VALID_POS.has(meta.pos) ? meta.pos : "WR");
+      ghosts.push({
+        id: p.playerId,
+        name: hit?.fullName ?? meta?.name ?? "Sleeper player",
+        team: hit?.nflTeam ?? meta?.team ?? "FA",
+        pos: pos as SnapshotV1["players"][number]["pos"],
+        rank: 9000 + p.overall,
+        adp: null,
+      });
+    }
+  }
   const config: DraftConfig = {
     numTeams: snap.numTeams,
     teamOrder: snap.teamOrder,
@@ -66,7 +115,7 @@ export function buildSessionPayload(
     sessionId: session.id,
     mode: session.mode,
     config,
-    players: snap.players as EnginePlayer[],
+    players: [...snap.players, ...ghosts] as EnginePlayer[],
     picks: picks.map((p) => ({ overall: p.overall, teamSlot: p.teamSlot, playerId: p.playerId })),
     queue: z.array(z.string()).catch([]).parse(session.queuedPlayerIds),
     recPos: z.array(posSchema).catch(["QB", "RB", "WR", "TE", "DEF", "K"]).parse(session.recPositions) as Pos[],

@@ -44,6 +44,26 @@ interface SyncState {
   lastFlushedAt: number | null;
 }
 
+/** SLEEPER_SYNC substate fed by the /live poller (PLAN.md §8). */
+export interface LiveState {
+  /** Provider vocabulary: pre_draft | drafting | paused | complete. */
+  providerStatus: string | null;
+  /** Client clock of the last applied /live response. */
+  lastLiveSyncAt: number | null;
+  /** Server-reported seconds since the provider was last reached. */
+  staleSeconds: number | null;
+  /** Client clock of the last commissioner correction (drives the toast flash). */
+  correctedAt: number | null;
+  /** syncedAt of the last applied response — echoed to /live as sinceSyncedAt. */
+  syncedAt: string | null;
+}
+
+export interface ProviderPickRow {
+  overall: number;
+  teamSlot: number;
+  playerId: string;
+}
+
 export interface DraftStore {
   sessionId: string;
   mode: DraftMode;
@@ -52,6 +72,7 @@ export interface DraftStore {
   state: DraftState;
   ui: UiState;
   sync: SyncState;
+  live: LiveState;
 
   /** Mock mode: let bots draft up to the user's first turn (legacy enterDraftRoom). */
   kickoff: () => void;
@@ -62,6 +83,21 @@ export interface DraftStore {
   recPosToggle: (pos: Pos) => void;
   setUi: (patch: Partial<UiState>) => void;
   flush: (opts?: { keepalive?: boolean }) => Promise<void>;
+  /** SLEEPER_SYNC only: apply a /live response (corrected → full rebuild). */
+  applyProviderPicks: (
+    picks: ProviderPickRow[],
+    meta: {
+      corrected: boolean;
+      /** Full-list responses (bootstrap poll) replace instead of appending. */
+      replace?: boolean;
+      providerStatus?: string;
+      staleSeconds?: number;
+      syncedAt?: string;
+      /** Render metadata for picks the snapshot pool can't name (sentinels +
+       * out-of-pool canonical players) — injected as ghost pool rows. */
+      unresolved?: Record<string, { name: string; pos: string | null; team: string | null }>;
+    },
+  ) => void;
 }
 
 const FLUSH_IDLE_MS = 1500;
@@ -144,6 +180,13 @@ export function createDraftStore(payload: SessionPayload): StoreApi<DraftStore> 
           lastError: null,
           lastFlushedAt: null,
         },
+        live: {
+          providerStatus: null,
+          lastLiveSyncAt: null,
+          staleSeconds: null,
+          correctedAt: null,
+          syncedAt: null,
+        },
 
         kickoff: () => {
           const { state: s, mode } = get();
@@ -197,17 +240,81 @@ export function createDraftStore(payload: SessionPayload): StoreApi<DraftStore> 
 
         setUi: (patch) => set({ ui: { ...get().ui, ...patch } }),
 
+        applyProviderPicks: (rows, meta) => {
+          const { state: s, mode, live } = get();
+          if (mode !== "SLEEPER_SYNC") return;
+          // Ghost rows: picks the snapshot pool can't name (sentinels and
+          // out-of-pool canonical players) would render '?' on the board and
+          // vanish from rosters/drafted lists. The pool maps are mutable behind
+          // readonly types; ghosts are already-drafted so availability-derived
+          // math (recommendations/scarcity/outlook) never sees them.
+          for (const row of rows) {
+            if (pool.byId.has(row.playerId)) continue;
+            const g = meta.unresolved?.[row.playerId];
+            const VALID_POS = ["QB", "RB", "WR", "TE", "K", "DEF"];
+            const ghost: EnginePlayer = {
+              id: row.playerId,
+              name: g?.name ?? "Sleeper player",
+              team: g?.team ?? "FA",
+              pos: (g?.pos && VALID_POS.includes(g.pos) ? g.pos : "WR") as EnginePlayer["pos"],
+              rank: 9000 + row.overall,
+              adp: null,
+            };
+            pool.players.push(ghost);
+            (pool.byId as Map<PlayerId, EnginePlayer>).set(ghost.id, ghost);
+          }
+          // Direct state rebuild mirroring the constructor's hydration —
+          // deliberately NOT applyPick: provider picks bypass its pool/turn
+          // guards (a live pick with an unresolved 'sleeper:<id>' sentinel or
+          // an out-of-snapshot player must never drop), teamSlot is provider
+          // truth (3RR/traded picks), and only round/pickInRound re-derive.
+          const incoming = rows
+            .slice()
+            .sort((a, b) => a.overall - b.overall)
+            .map((p) => {
+              const { round, pickInRound } = pickForOverall(s.config, p.overall);
+              return { overall: p.overall, round, pickInRound, teamId: p.teamSlot, playerId: p.playerId };
+            });
+          const rebuild = meta.corrected || meta.replace === true;
+          const picks = rebuild
+            ? incoming
+            : [...s.picks, ...incoming.filter((p) => p.overall > s.picks.length)];
+          const changed = rebuild
+            ? picks.length !== s.picks.length ||
+              picks.some((p, i) => p.playerId !== s.picks[i]?.playerId)
+            : picks.length !== s.picks.length;
+          set({
+            ...(changed && { state: { ...s, picks } }),
+            // Provider picks ARE server truth — keep lastSynced in step so the
+            // sync note never counts them as unsaved.
+            sync: { ...get().sync, lastSynced: picks.length },
+            live: {
+              providerStatus: meta.providerStatus ?? live.providerStatus,
+              lastLiveSyncAt: Date.now(),
+              staleSeconds: meta.staleSeconds ?? live.staleSeconds,
+              correctedAt: meta.corrected ? Date.now() : live.correctedAt,
+              syncedAt: meta.syncedAt ?? live.syncedAt,
+            },
+          });
+        },
+
         flush: async (opts) => {
-          const { sync, state: s, sessionId } = get();
+          const { sync, state: s, sessionId, mode } = get();
           if (sync.inFlight) return;
+          // Live sessions are provider-written: never send picks/truncates,
+          // but queue/recPos still persist via a meta-only flush.
+          const liveMode = mode === "SLEEPER_SYNC";
+          if (liveMode && !sync.metaDirty) return;
           const base = sync.pendingTruncate ?? sync.lastSynced;
-          const upserts = s.picks.slice(base).map((p) => ({
-            overall: p.overall,
-            teamSlot: p.teamId,
-            playerId: String(p.playerId),
-            source: p.teamId === s.config.myTeamId ? "USER" : "AUTOPICK",
-          }));
-          if (upserts.length === 0 && sync.pendingTruncate == null && !sync.metaDirty) return;
+          const upserts = liveMode
+            ? []
+            : s.picks.slice(base).map((p) => ({
+                overall: p.overall,
+                teamSlot: p.teamId,
+                playerId: String(p.playerId),
+                source: p.teamId === s.config.myTeamId ? "USER" : "AUTOPICK",
+              }));
+          if (upserts.length === 0 && (liveMode || sync.pendingTruncate == null) && !sync.metaDirty) return;
 
           set({ sync: { ...sync, inFlight: true } });
           try {
@@ -216,7 +323,7 @@ export function createDraftStore(payload: SessionPayload): StoreApi<DraftStore> 
               headers: { "Content-Type": "application/json" },
               keepalive: opts?.keepalive ?? false,
               body: JSON.stringify({
-                truncateAfter: sync.pendingTruncate ?? undefined,
+                truncateAfter: liveMode ? undefined : (sync.pendingTruncate ?? undefined),
                 upserts,
                 queuedPlayerIds: s.queue.map(String),
                 recPositions: s.recPos,

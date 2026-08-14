@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     "src/generated/**",
     "src/engine/legacy/**",
     "src/engine/__tests__/helpers/*.cjs", // CommonJS bridges to the legacy module
+    "scripts/*.cjs", // archived one-time audit tooling
     "coverage/**",
   ]),
   {

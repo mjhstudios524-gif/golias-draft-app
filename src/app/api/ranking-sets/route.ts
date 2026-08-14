@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, UnauthorizedError } from "@/server/auth";
+import { PaywallError } from "@/server/entitlements";
 import { createRankingSet, listSets, RankingsError } from "@/server/rankings/sets";
 
 const posSchema = z.enum(["QB", "RB", "WR", "TE", "K", "DEF"]);
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
     const result = await createRankingSet({ userId, ...parsed.data });
     return NextResponse.json(result, { status: 201 });
   } catch (e) {
+    if (e instanceof PaywallError) return NextResponse.json({ error: e.message }, { status: 402 });
     if (e instanceof RankingsError) return domainError(e);
     throw e;
   }

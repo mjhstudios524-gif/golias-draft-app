@@ -1,17 +1,23 @@
 import { notFound } from "next/navigation";
 import { db } from "@/server/db";
 import { requireUser } from "@/server/auth";
-import { createDevMockSession } from "./actions";
+import { getActiveEntitlement } from "@/server/entitlements";
+import { currentSeason } from "@/lib/season";
+import { createDevMockSession, devGrantSeason, devRevokeSeason } from "./actions";
 
 export default async function DevDraftPage() {
   if (process.env.NODE_ENV === "production") notFound();
   const userId = await requireUser();
-  const sessions = await db.draftSession.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    include: { _count: { select: { picks: true } }, league: { select: { name: true } } },
-  });
+  const season = currentSeason(new Date());
+  const [sessions, entitlement] = await Promise.all([
+    db.draftSession.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      include: { _count: { select: { picks: true } }, league: { select: { name: true } } },
+    }),
+    getActiveEntitlement(userId, season.product),
+  ]);
 
   return (
     <div className="setup-page">
@@ -33,6 +39,31 @@ export default async function DevDraftPage() {
             Start Mock Draft →
           </button>
         </form>
+      </div>
+      <div className="setup-card">
+        <h2>Season Pass ({season.product})</h2>
+        <p className="setup-sub">
+          Dev-only entitlement toggle — exercises the §9 paid gates without Stripe.{" "}
+          {entitlement ? (
+            <b style={{ color: "var(--good)" }}>
+              Active through {entitlement.expiresAt.toISOString().slice(0, 10)}
+            </b>
+          ) : (
+            <b>Not entitled (free tier)</b>
+          )}
+        </p>
+        <div className="row-inline">
+          <form action={devGrantSeason}>
+            <button className="primary" type="submit" disabled={!!entitlement}>
+              Grant season pass
+            </button>
+          </form>
+          <form action={devRevokeSeason}>
+            <button className="danger" type="submit" disabled={!entitlement}>
+              Revoke
+            </button>
+          </form>
+        </div>
       </div>
       <div className="setup-card">
         <h2>Recent Sessions</h2>

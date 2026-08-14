@@ -41,8 +41,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const session = await db.draftSession.findUnique({ where: { id }, select: { id: true, userId: true, mode: true } });
   if (!session || session.userId !== userId) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (session.mode === "SLEEPER_SYNC") {
-    // provider is the sole writer for live drafts (client "flush" should never fire there)
+  if (session.mode === "SLEEPER_SYNC" && (body.upserts.length > 0 || body.truncateAfter != null)) {
+    // provider is the sole PICK writer for live drafts; meta-only flushes
+    // (queue/recPos) are allowed so the user's queue survives reloads
     return NextResponse.json({ error: "live sessions are provider-written" }, { status: 409 });
   }
 

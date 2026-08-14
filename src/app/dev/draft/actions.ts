@@ -3,8 +3,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireUser } from "@/server/auth";
+import { grantEntitlement } from "@/server/entitlements";
+import { currentSeason } from "@/lib/season";
 import type { SnapshotV1 } from "@/server/sessions";
 
 // DEV HARNESS ONLY (page 404s in production). Uses the extracted legacy
@@ -86,4 +89,34 @@ export async function createDevMockSession(formData: FormData) {
   });
 
   redirect(`/draft/${session.id}`);
+}
+
+// Dev-only entitlement toggles so paid paths are testable locally without
+// Stripe (charter: §9 gating). Deterministic fake Stripe ids per user+product.
+
+export async function devGrantSeason() {
+  if (process.env.NODE_ENV === "production") throw new Error("dev only");
+  const userId = await requireUser();
+  const product = currentSeason(new Date()).product;
+  await grantEntitlement({
+    userId,
+    checkoutSessionId: `dev_cs_${userId}_${product}`,
+    paymentIntentId: `dev_pi_${userId}_${product}`,
+    amountTotal: 899,
+    currency: "usd",
+  });
+  revalidatePath("/dev/draft");
+}
+
+export async function devRevokeSeason() {
+  if (process.env.NODE_ENV === "production") throw new Error("dev only");
+  const userId = await requireUser();
+  const product = currentSeason(new Date()).product;
+  // Revoke directly by [userId, product] so it also catches passes granted
+  // through a real local `stripe listen` test.
+  await db.entitlement.updateMany({
+    where: { userId, product, revokedAt: null },
+    data: { revokedAt: new Date(), revokeReason: "admin" },
+  });
+  revalidatePath("/dev/draft");
 }

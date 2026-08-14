@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DATA_TIER_LABELS, type RankingSetOption } from "@/lib/leagues";
+import { ADP_FORMAT_LABELS, type AdpFormat } from "@/server/adp/types";
 import { createSession } from "@/server/sessions-create";
 
 export interface WizardLeague {
@@ -13,6 +14,16 @@ export interface WizardLeague {
   rankingSetId: string | null;
   /** Display label from leagueFormat ("1QB" | "Superflex/2QB"). */
   formatLabel: string;
+  /** Which live AdpSnapshot format this league would attach (PLAN.md §8a). */
+  adpFormat: AdpFormat;
+}
+
+/** Server-computed ADP attribution inputs for the indicator line. */
+export interface WizardAdpInfo {
+  /** format → fetchedAt ISO string for the stored FFC snapshots. */
+  snapshots: Record<string, string>;
+  /** Ranking sets carrying their own ADP column (upload precedence). */
+  setsWithUploadedAdp: string[];
 }
 
 interface SeatState {
@@ -40,10 +51,12 @@ export function NewSessionWizard({
   userId,
   leagues,
   sets,
+  adp,
 }: {
   userId: string;
   leagues: WizardLeague[];
   sets: RankingSetOption[];
+  adp?: WizardAdpInfo;
 }) {
   const router = useRouter();
   const [leagueId, setLeagueId] = useState(leagues[0]?.id ?? "");
@@ -74,6 +87,16 @@ export function NewSessionWizard({
   };
 
   const nameFor = (teamId: number) => seats.teamNames[teamId]?.trim() || `Team ${teamId}`;
+
+  // ADP attribution (PLAN.md §8a): upload precedence, else the live FFC
+  // snapshot the selected league's format would attach at session creation.
+  const adpIndicator = (() => {
+    if (!adp || !rankingSetId) return null;
+    if (adp.setsWithUploadedAdp.includes(rankingSetId)) return "ADP: from your upload";
+    const fetched = league ? adp.snapshots[league.adpFormat] : undefined;
+    if (!league || !fetched) return "ADP: no live snapshot available yet";
+    return `ADP: FFC ${ADP_FORMAT_LABELS[league.adpFormat]}, updated ${new Date(fetched).toLocaleDateString()}`;
+  })();
 
   const start = async () => {
     if (!league || !rankingSetId) return;
@@ -173,6 +196,15 @@ export function NewSessionWizard({
                 </option>
               ))}
             </select>
+            {adpIndicator && (
+              <div
+                className="setup-sub"
+                style={{ marginTop: 6, marginBottom: 0 }}
+                title="ADP data: FantasyFootballCalculator.com"
+              >
+                {adpIndicator}
+              </div>
+            )}
           </div>
         )}
       </div>

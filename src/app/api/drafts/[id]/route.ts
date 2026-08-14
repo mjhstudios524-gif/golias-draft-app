@@ -18,5 +18,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     include: { picks: { orderBy: { overall: "asc" } } },
   });
   if (!session || session.userId !== userId) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json(buildSessionPayload(session, session.picks));
+  return NextResponse.json(await buildSessionPayload(session, session.picks));
 }

@@ -4,6 +4,11 @@ import { z } from "zod";
 import { db } from "@/server/db";
 import { requireUser, UnauthorizedError } from "@/server/auth";
 import {
+  assertCanCreateLeague,
+  assertScoringAllowed,
+  PaywallError,
+} from "@/server/entitlements";
+import {
   CURRENT_SEASON,
   leagueInputSchema,
   type LeagueActionResult,
@@ -41,6 +46,14 @@ export async function createLeague(raw: unknown): Promise<LeagueActionResult> {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid league settings" };
   }
   const input = parsed.data;
+  // §9 gates: free tier = 1 league; non-preset scoring is entitled-only.
+  try {
+    await assertCanCreateLeague(userId);
+    await assertScoringAllowed(userId, input.scoring);
+  } catch (e) {
+    if (e instanceof PaywallError) return { ok: false, error: e.message };
+    throw e;
+  }
   if (input.rankingSetId && !(await rankingSetUsable(userId, input.rankingSetId))) {
     return { ok: false, error: "That ranking set is not available (it must be READY)" };
   }
@@ -64,6 +77,13 @@ export async function updateLeague(raw: unknown): Promise<LeagueActionResult> {
     select: { userId: true },
   });
   if (!existing || existing.userId !== userId) return { ok: false, error: "League not found" };
+  // §9 gate: custom-scoring save (non-preset scoring) is entitled-only.
+  try {
+    await assertScoringAllowed(userId, input.scoring);
+  } catch (e) {
+    if (e instanceof PaywallError) return { ok: false, error: e.message };
+    throw e;
+  }
   if (input.rankingSetId && !(await rankingSetUsable(userId, input.rankingSetId))) {
     return { ok: false, error: "That ranking set is not available (it must be READY)" };
   }

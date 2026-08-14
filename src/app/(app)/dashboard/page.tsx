@@ -80,6 +80,7 @@ export default async function DashboardPage() {
           New Draft →
         </LinkButton>
         <LinkButton href="/leagues/new">+ New League</LinkButton>
+        <LinkButton href="/leagues/import">⇣ Import from Sleeper</LinkButton>
         <LinkButton href="/rankings">Rankings</LinkButton>
       </div>
 

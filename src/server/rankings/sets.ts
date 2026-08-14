@@ -4,6 +4,7 @@ import { db } from "@/server/db";
 import { Prisma } from "@/generated/prisma/client";
 import type { RankingEntry, RankingSet } from "@/generated/prisma/client";
 import { normalizeName } from "@/lib/players/normalize";
+import { assertEntitled } from "@/server/entitlements";
 import { matchEntries } from "./match";
 import type { MatchCandidate, NormalizedRow } from "./types";
 
@@ -52,6 +53,9 @@ export interface CreateRankingSetResult {
 }
 
 export async function createRankingSet(args: CreateRankingSetArgs): Promise<CreateRankingSetResult> {
+  // §9 gate: CSV uploads are entitled-only. This path always creates kind
+  // UPLOAD — shipped PRESET sets (exempt) are seeded outside it.
+  await assertEntitled(args.userId, "Uploading custom rankings");
   const rows = [...args.rows].sort((a, b) => a.sourceRow - b.sourceRow);
   if (rows.length === 0) throw new RankingsError("a ranking set needs at least one row", "INVALID");
 

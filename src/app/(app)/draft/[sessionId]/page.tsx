@@ -16,6 +16,6 @@ export default async function DraftSessionPage({
     include: { picks: { orderBy: { overall: "asc" } } },
   });
   if (!session || session.userId !== userId) notFound();
-  const payload = buildSessionPayload(session, session.picks);
+  const payload = await buildSessionPayload(session, session.picks);
   return <DraftRoom payload={payload} />;
 }

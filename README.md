@@ -41,8 +41,12 @@ These require account access and are **not** automated by the repo:
    Locally: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
    (its printed secret is your local `STRIPE_WEBHOOK_SECRET`).
 4. **Vercel** — import the repo, set all env vars from `.env.example`,
-   Node 24, and enable the crons defined in `vercel.json` (added in Phase 3).
-   The players-dump cron needs `maxDuration: 300` (Pro plan).
+   Node 24. Crons are defined in `vercel.json` (daily players dump 10:00 UTC,
+   daily FFC ADP 10:30 UTC); Vercel sends them with the `CRON_SECRET` you set.
+   The players-dump cron needs `maxDuration: 300` (Pro plan). After first
+   deploy, trigger `/api/cron/sync-players` then `/api/cron/sync-adp` once
+   manually (curl with `Authorization: Bearer $CRON_SECRET`) to seed
+   production data before draft night.
 
 ## Engine purity
 

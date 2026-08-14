@@ -5,6 +5,7 @@ import { useStore, type StoreApi } from "zustand";
 import { createDraftStore, type DraftStore, type SessionPayload } from "@/stores/draftStore";
 import { Topbar } from "./Topbar";
 import { RecPanel } from "./RecPanel";
+import { LiveSync } from "./LiveSync";
 import { ScarcityBar } from "./ScarcityBar";
 import { PlayerList } from "./PlayerList";
 import { RightPanel } from "./RightPanel";
@@ -38,6 +39,7 @@ export function DraftRoom({ payload }: { payload: SessionPayload }) {
       <div id="draftroom" style={{ display: "flex" }}>
         <Topbar />
         <RecPanel />
+        {payload.mode === "SLEEPER_SYNC" && <LiveSync />}
         <ScarcityBar />
         <div id="mainarea">
           <PlayerList />
