@@ -184,9 +184,10 @@ export function NewSessionWizard({
         <h2>Rankings</h2>
         {sets.length === 0 ? (
           <p className="setup-sub" style={{ marginBottom: 0 }}>
-            No ranking sets are READY yet —{" "}
+            The free consensus boards haven&rsquo;t been generated yet (they refresh
+            nightly from public draft data). In the meantime you can{" "}
             <Link href="/rankings" style={{ color: "var(--accent)" }}>
-              upload rankings
+              upload your own rankings
             </Link>{" "}
             to draft with.
           </p>
@@ -194,11 +195,28 @@ export function NewSessionWizard({
           <div className="field" style={{ maxWidth: 420 }}>
             <label>Ranking Set</label>
             <select value={rankingSetId} onChange={(e) => setRankingSetId(e.target.value)}>
-              {sets.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} (v{s.version}, {s.formatTag}, {DATA_TIER_LABELS[s.dataTier]})
-                </option>
-              ))}
+              {sets.some((s) => s.derivedFrom) && (
+                <optgroup label="Public consensus boards — updated nightly">
+                  {sets
+                    .filter((s) => s.derivedFrom)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.formatTag})
+                      </option>
+                    ))}
+                </optgroup>
+              )}
+              {sets.some((s) => !s.derivedFrom) && (
+                <optgroup label="Your rankings">
+                  {sets
+                    .filter((s) => !s.derivedFrom)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} (v{s.version}, {s.formatTag}, {DATA_TIER_LABELS[s.dataTier]})
+                      </option>
+                    ))}
+                </optgroup>
+              )}
             </select>
             {adpIndicator && (
               <div
