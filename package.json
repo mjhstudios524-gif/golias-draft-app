@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -42,14 +42,14 @@
     "@types/papaparse": "^5.5.2",
     "@types/pg": "^8.21.0",
     "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react-dom": "^19.2.4",
     "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^9",
+    "eslint": "^9.39.5",
     "eslint-config-next": "16.3.0",
     "fast-check": "^4.9.0",
     "prisma": "^7.9.1",
-    "tailwindcss": "^4",
-    "typescript": "^5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@11.21.0"
