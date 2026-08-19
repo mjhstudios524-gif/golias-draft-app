@@ -92,6 +92,10 @@ export function NewSessionWizard({
   // snapshot the selected league's format would attach at session creation.
   const adpIndicator = (() => {
     if (!adp || !rankingSetId) return null;
+    // A Consensus board IS the market ordering, so its ADP is not "yours" and
+    // the rank-vs-ADP signals are off on it (PLAN.md §6) — say so plainly.
+    const derived = sets.find((s) => s.id === rankingSetId)?.derivedFrom;
+    if (derived) return "ADP: FFC consensus — this board's own ordering";
     if (adp.setsWithUploadedAdp.includes(rankingSetId)) return "ADP: from your upload";
     const fetched = league ? adp.snapshots[league.adpFormat] : undefined;
     if (!league || !fetched) return "ADP: no live snapshot available yet";

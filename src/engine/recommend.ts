@@ -129,7 +129,9 @@ export function computeRecommendations(state: DraftState, pool: PlayerPool): Rec
     if (s.tierLeft <= 2) reasons.push({ code: "TIER_LAST_FEW", n: s.tierLeft, pos: s.player.pos });
     else if (s.tierLeft <= 4) reasons.push({ code: "TIER_FEW", n: s.tierLeft, pos: s.player.pos });
     if (s.surv != null && s.surv >= 0.75) reasons.push({ code: "WILL_WAIT", adp: s.adp! });
-    if (s.adp != null && s.adp - s.player.rank >= 25)
+    // FALLING compares the board's rank to ADP; on an ADP-derived board those
+    // are the same number, so the reason is meaningless there (PLAN.md §6).
+    if (!config.adpDerived && s.adp != null && s.adp - s.player.rank >= 25)
       reasons.push({ code: "FALLING", picksLater: Math.round(s.adp - s.player.rank) });
     if (s.byeClash) reasons.push({ code: "BYE_STACK", bye: s.bye! });
     if (reasons.length === 0) reasons.push({ code: "STRONG_VALUE", pos: s.player.pos });

@@ -110,6 +110,7 @@ export async function listReadyRankingSets(): Promise<RankingSetOption[]> {
       dataTier: true,
       formatTag: true,
       seasonYear: true,
+      derivedFrom: true,
     },
   });
 }

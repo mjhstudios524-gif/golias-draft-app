@@ -114,6 +114,10 @@ model Player {
   active        Boolean  @default(true)
   injuryStatus  String?
   isTeamDefense Boolean  @default(false)
+  // Sleeper's coarse popularity rank — used only to extend derived preset
+  // boards past the ADP-covered pool (~256 players) so deep leagues don't
+  // run dry in the last rounds. Not a ranking source on its own.
+  searchRank    Int?
   // Crosswalk ids are NOT unique in the real Sleeper dump (duplicate espn_ids
   // observed) — indexed lookup columns only, never identity.
   espnId        String?
@@ -182,11 +186,20 @@ model RankingSet {
   headerFingerprint String?
   columnMap         Json?
   rawCsv            String? // latest version per group only (bloat bound)
+  // Set on auto-generated boards, e.g. 'ffc:PPR'. A board derived FROM market
+  // ADP can't also be judged against it, so the room suppresses the
+  // value/reach colouring and the "falling past his rank" reason for these.
+  derivedFrom       String?
   createdAt         DateTime   @default(now())
 
   entries RankingEntry[]
 
   @@unique([groupId, version])
+  // One derived board per source+season, enforced by the DB: deriveAdpPresets
+  // does check-then-refresh, and without this a retried or overlapping cron run
+  // races itself into duplicate "Consensus PPR" boards. NULL derivedFrom (every
+  // user upload) is exempt — Postgres allows unlimited NULLs in a unique index.
+  @@unique([derivedFrom, seasonYear])
   @@index([userId, seasonYear])
 }
 

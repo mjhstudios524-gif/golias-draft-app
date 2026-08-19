@@ -105,7 +105,15 @@ export function PlayerList() {
           {p.adp}*
         </span>
       );
-    const cls = sig === "value" ? "adp-val" : sig === "reach" ? "adp-reach" : "";
+    // On an ADP-derived board rank IS the ADP ordering, so value/reach would
+    // only ever fire on deep-tail noise — render the number plainly (PLAN.md §6).
+    const cls = config.adpDerived
+      ? ""
+      : sig === "value"
+        ? "adp-val"
+        : sig === "reach"
+          ? "adp-reach"
+          : "";
     return <span className={cls}>{p.adp}</span>;
   };
   void effectiveAdp; // display uses adpSignal; effectiveAdp feeds the engine paths

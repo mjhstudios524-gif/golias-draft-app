@@ -143,6 +143,9 @@ export async function createSession(raw: unknown): Promise<CreateSessionResult> 
     adpContext,
     adpSource,
     adpFetchedAt,
+    // A board derived FROM market ADP cannot be judged against it — freeze the
+    // flag so the room suppresses the rank-vs-ADP signals (PLAN.md §6).
+    adpDerived: set.derivedFrom != null ? true : undefined,
     rngSeed: Math.floor(Math.random() * 2 ** 31),
     players,
   });

@@ -21,12 +21,24 @@ const sleeperPlayer = z
     team: z.string().nullish(),
     active: z.boolean().nullish(),
     injury_status: z.string().nullish(),
+    search_rank: z.number().nullish(),
     espn_id: z.union([z.string(), z.number()]).nullish(),
     yahoo_id: z.union([z.string(), z.number()]).nullish(),
     gsis_id: z.string().nullish(),
     sportradar_id: z.string().nullish(),
   })
   .loose();
+
+// Sleeper's search_rank is a coarse popularity ordinal used only to extend
+// derived preset boards past the ~250-player ADP pool. It is sparse and the
+// dump parks unranked players at 9999999 — kept verbatim (they simply sort
+// last) but clamped to int4 so an out-of-range value can never fail the write.
+const MAX_INT4 = 2_147_483_647;
+
+function toSearchRank(raw: number | null | undefined): number | null {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+  return Math.min(Math.max(Math.trunc(raw), 0), MAX_INT4);
+}
 
 export interface PlayerSyncResult {
   ok: boolean;
@@ -72,6 +84,7 @@ export async function syncPlayersFromSleeper(): Promise<PlayerSyncResult> {
     active: boolean;
     injuryStatus: string | null;
     isTeamDefense: boolean;
+    searchRank: number | null;
     espnId: string | null;
     yahooId: string | null;
     gsisId: string | null;
@@ -106,6 +119,7 @@ export async function syncPlayersFromSleeper(): Promise<PlayerSyncResult> {
       active: true,
       injuryStatus: p.injury_status ?? null,
       isTeamDefense: isDst,
+      searchRank: toSearchRank(p.search_rank),
       espnId: p.espn_id != null ? String(p.espn_id) : null,
       yahooId: p.yahoo_id != null ? String(p.yahoo_id) : null,
       gsisId: p.gsis_id ?? null,

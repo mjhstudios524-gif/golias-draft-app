@@ -42,6 +42,15 @@ export interface DraftConfig {
   byeWeeks: Record<string, number>;
   /** ADP market of the active ranking source — drives the QB-ADP-nulling rule. */
   adpContext: AdpContext;
+  /**
+   * True when the board's ordering was DERIVED from the same market ADP the
+   * room compares against (PLAN.md §6 presets). rank and adp are then the same
+   * underlying number, so rank-vs-ADP signals — the value/reach cell colouring
+   * and the FALLING reason — carry no information and diverge only as tail
+   * noise; both are suppressed. Everything measuring ADP against the PICK
+   * NUMBER (survival, outlook, scarcity, VBD) is unaffected.
+   */
+  adpDerived?: boolean;
 }
 
 /**

@@ -59,6 +59,8 @@ export interface RankingSetOption {
   dataTier: "RANK_ONLY" | "POINTS" | "FULL_STATS";
   formatTag: string;
   seasonYear: number;
+  /** 'ffc:PPR' etc on the nightly-derived Consensus boards; null on uploads. */
+  derivedFrom: string | null;
 }
 
 export const DATA_TIER_LABELS: Record<RankingSetOption["dataTier"], string> = {

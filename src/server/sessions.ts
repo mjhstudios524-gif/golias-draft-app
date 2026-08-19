@@ -30,6 +30,10 @@ export const snapshotV1 = z.object({
   adpContext: z.enum(["1QB", "SF", "UNKNOWN"]),
   adpSource: z.string().optional(), // 'ffc:FORMAT' when live ADP was attached (PLAN.md §8a)
   adpFetchedAt: z.string().optional(),
+  // Set when the chosen ranking set was itself derived from market ADP
+  // (RankingSet.derivedFrom): the room then suppresses the rank-vs-ADP signals
+  // (PLAN.md §6). Absent on every pre-existing snapshot ⇒ legacy behavior.
+  adpDerived: z.boolean().optional(),
   rngSeed: z.number().int(),
   players: z.array(
     z.object({
@@ -110,6 +114,7 @@ export async function buildSessionPayload(
     mockDraft: session.mode === "MOCK",
     byeWeeks: snap.byeWeeks,
     adpContext: snap.adpContext,
+    ...(snap.adpDerived === true && { adpDerived: true as const }),
   };
   return {
     sessionId: session.id,
